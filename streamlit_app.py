@@ -286,10 +286,44 @@ def add_risk_annotation():
 # -----------------------------
 # /mount/src/gdp-dashboard/streamlit_app.py 내의 load_user_table 함수 (Line 320 근처)
 
+# /mount/src/gdp-dashboard/streamlit_app.py 내의 load_user_table 함수 (Line 290 근처)
+
 @st.cache_data(show_spinner=False)
 def load_user_table():
-    # ... (생략)
+    """
+    프롬프트에 포함된 '폭염일수' 표를 내장 CSV로 구성.
+    """
+    raw = """연도,1월,2월,3월,4월,5월,6월,7월,8월,9월,10월,11월,12월,연합계,순위
+2015,0,0,0,0,0,1,4,3,0,0,0,0,8,10
+2016,0,0,0,0,0,0,4,20,0,0,0,0,24,4
+2017,0,0,0,0,0,1,5,7,0,0,0,0,13,8
+2018,0,0,0,0,0,0,16,19,0,0,0,0,35,1
+2019,0,0,0,0,1,0,4,10,0,0,0,0,15,7
+2020,0,0,0,0,0,2,0,2,0,0,0,0,4,11
+2021,0,0,0,0,0,0,15,3,0,0,0,0,18,6
+2022,0,0,0,0,0,0,10,0,0,0,0,0,10,9
+2020,0,0,0,0,0,2,6,11,0,0,0,0,19,5
+2024,0,0,0,0,0,4,2,21,6,0,0,0,33,2
+2025,0,0,0,0,0,3,15,9,1,,,,28,3
+평균,0.0,0.0,0.0,0.0,0.1,1.2,7.4,9.6,0.6,0.0,0.0,0.0,, 
+"""
+    # ★★★ 안전 로딩 로직 추가 ★★★
+    try:
+        df = pd.read_csv(io.StringIO(raw))
+    except Exception as e:
+        st.error(f"내장된 사용자 데이터를 읽는 중 오류 발생: {e}")
+        # 실패 시 빈 표준 DataFrame 반환
+        empty_out = pd.DataFrame(columns=["date", "value", "group"])
+        empty_yr = pd.DataFrame(columns=["year", "total", "rank"])
+        return empty_out, empty_yr
+
+    # "평균" 행 제거 및 데이터프레임 복사
     df = df[df["연도"].apply(lambda x: str(x).isdigit())].copy()
+    if df.empty:
+        empty_out = pd.DataFrame(columns=["date", "value", "group"])
+        empty_yr = pd.DataFrame(columns=["year", "total", "rank"])
+        return empty_out, empty_yr
+        
     df["연도"] = df["연도"].astype(int)
 
     # melt 월별
@@ -299,23 +333,9 @@ def load_user_table():
         if c not in df.columns:
             df[c] = np.nan
 
-    # ★★★ 수정된 핵심 로직: id_vars에서 ["연도"]를 중복해서 더하는 것을 제거합니다. ★★★
+    # ★★★ 이전 KeyError 해결 로직 반영: keep_cols만 사용 ★★★
     m = df.melt(id_vars=keep_cols, value_vars=month_cols, var_name="월", value_name="폭염일수")
     
-    # ... (생략)
-    df = pd.read_csv(io.StringIO(raw))
-    # "평균" 행 제거
-    df = df[df["연도"].apply(lambda x: str(x).isdigit())].copy()
-    df["연도"] = df["연도"].astype(int)
-
-    # melt 월별
-    month_cols = ["1월","2월","3월","4월","5월","6월","7월","8월","9월","10월","11월","12월"]
-    keep_cols = ["연도","연합계","순위"]
-    for c in month_cols:
-        if c not in df.columns:
-            df[c] = np.nan
-
-    m = df.melt(id_vars=keep_cols + ["연도"], value_vars=month_cols, var_name="월", value_name="폭염일수")
     # 날짜 생성: 각 월의 1일
     m["월_int"] = m["월"].str.replace("월", "", regex=False).astype(int)
     m["date"] = pd.to_datetime(dict(year=m["연도"], month=m["월_int"], day=1)).dt.date
@@ -327,7 +347,7 @@ def load_user_table():
     # 미래 월 제거
     out = clamp_to_today(out, "date")
 
-    # 연도별 연합계/순위 테이블도 보관
+    # 연도별 연합계/순위 테이블
     yr = df[["연도", "연합계", "순위"]].rename(columns={"연도":"year","연합계":"total","순위":"rank"})
     yr["total"] = pd.to_numeric(yr["total"], errors="coerce")
     yr["rank"] = pd.to_numeric(yr["rank"], errors="coerce")
